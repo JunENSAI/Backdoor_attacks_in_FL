@@ -90,30 +90,35 @@ class Server:
     
     def plot_metrics(self):
         """
-        Génère et sauvegarde les courbes de Loss et Accuracy.
+        Génère les courbes et affiche la précision finale sur l'image.
         """
         rounds = range(1, self.rounds + 1)
+
+        final_loss = self.history['loss'][-1]
+        final_acc = self.history['accuracy'][-1]
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-        ax1.plot(rounds, self.history['loss'], 'r-', marker='o')
-        ax1.set_title('Global Loss vs Rounds')
+        ax1.plot(rounds, self.history['loss'], color='r', linestyle='-')
+        ax1.set_title(f'Global Loss (Final: {final_loss:.4f})')
         ax1.set_xlabel('Communication Round')
-        ax1.set_ylabel('Loss (NLL)')
+        ax1.set_ylabel('Loss')
         ax1.grid(True)
- 
-        ax2.plot(rounds, self.history['accuracy'], 'b-', marker='o')
-        ax2.set_title('Global Accuracy vs Rounds')
+        
+        ax2.plot(rounds, self.history['accuracy'], color='b', linestyle='-')
+        ax2.set_title(f'Global Accuracy (Final: {final_acc:.2%})')
         ax2.set_xlabel('Communication Round')
         ax2.set_ylabel('Accuracy')
-        ax2.set_ylim([0, 1])
+        ax2.set_ylim([0, 1]) 
         ax2.grid(True)
+ 
+        ax2.annotate(f"{final_acc:.2%}", 
+                     (rounds[-1], final_acc), 
+                     textcoords="offset points", 
+                     xytext=(0,10), 
+                     ha='center')
         
         plt.tight_layout()
         plt.savefig('fl_iid_results.png')
-        print("\nPlots saved as 'fl_iid_results.png'")
+        print(f"\nPlots saved. Final Accuracy: {final_acc:.2%}")
         plt.show()
-
-if __name__ == "__main__":
-    server = Server(num_clients=5, rounds=3)
-    server.train()

@@ -4,7 +4,7 @@ import random
 import numpy as np
 from server import Server
 
-def set_seed(seed=42):
+def set_seed(seed=10001):
     """
     Sets the random seed for reproducibility.
     This ensures that every time you run the code, the 'random' initialization
@@ -26,10 +26,10 @@ def main():
     parser.add_argument('--rounds', type=int, default=20, 
                         help="Number of Global Communication Rounds")
     
-    parser.add_argument('--clients', type=int, default=6, 
+    parser.add_argument('--clients', type=int, default=5, 
                         help="Number of Clients in the federation")
     
-    parser.add_argument('--seed', type=int, default=42, 
+    parser.add_argument('--seed', type=int, default=10001, 
                         help="Random seed for reproducibility")
 
     args = parser.parse_args()
