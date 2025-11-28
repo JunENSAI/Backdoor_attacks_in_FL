@@ -116,4 +116,4 @@ class Client:
         loss, acc = test(self.model, self.testloader)
         print(f"Client {self.client_id}: Finished. Loss: {loss:.4f}, Accuracy: {acc:.2%}")
         
-        return updated_weights, len(self.trainloader.dataset)
+        return updated_weights, len(self.trainloader.dataset), {'loss': loss, 'accuracy': acc}

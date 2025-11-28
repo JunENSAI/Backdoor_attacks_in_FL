@@ -23,10 +23,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Federated Learning Simulation")
     
-    parser.add_argument('--rounds', type=int, default=3, 
+    parser.add_argument('--rounds', type=int, default=20, 
                         help="Number of Global Communication Rounds")
     
-    parser.add_argument('--clients', type=int, default=5, 
+    parser.add_argument('--clients', type=int, default=6, 
                         help="Number of Clients in the federation")
     
     parser.add_argument('--seed', type=int, default=42, 

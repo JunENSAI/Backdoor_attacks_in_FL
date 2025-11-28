@@ -3,6 +3,7 @@ import numpy as np
 import copy
 import models
 from client import Client
+import matplotlib.pyplot as plt
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -17,19 +18,20 @@ def get_average_weights(clients_updates, client_dataset_sizes):
         client_dataset_sizes: A list of integers (how many images each client had).
     """
     total_data_points = sum(client_dataset_sizes)
-    
+
     avg_weights = copy.deepcopy(clients_updates[0])
 
     for key in avg_weights.keys():
-        avg_weights[key] = torch.zeros_like(avg_weights[key], dtype=torch.float32)
-        
-    for client_weights, client_size in zip(clients_updates, client_dataset_sizes):
 
+        avg_weights[key] = torch.zeros_like(avg_weights[key], dtype=torch.float32)
+    
+    for client_weights, client_size in zip(clients_updates, client_dataset_sizes):
         contribution_ratio = client_size / total_data_points
-        
+
         for key in avg_weights.keys():
+
             avg_weights[key] += client_weights[key] * contribution_ratio
-            
+    
     return avg_weights
 
 class Server:
@@ -39,6 +41,8 @@ class Server:
         self.global_model = models.get_model().to(DEVICE)
         
         self.clients = [Client(client_id=i) for i in range(num_clients)]
+
+        self.history = {'loss': [], 'accuracy': []}
 
     def train(self):
         """
@@ -55,20 +59,60 @@ class Server:
             
             client_updates = []
             client_sizes = []
+
+            round_losses = []
+            round_accuracies = []
             
 
             for client in selected_clients:
 
-                local_weights, num_samples = client.fit(global_weights, epochs=1)
+                local_weights, num_samples, metrics = client.fit(global_weights, epochs=1)
                 
                 client_updates.append(local_weights)
                 client_sizes.append(num_samples)
+
+                round_losses.append(metrics['loss'] * num_samples)
+                round_accuracies.append(metrics['accuracy'] * num_samples)
             
             new_global_weights = get_average_weights(client_updates, client_sizes)
-   
             self.global_model.load_state_dict(new_global_weights)
             
-            print("Round Complete. Global Model Updated.")
+            total_samples = sum(client_sizes)
+            avg_loss = sum(round_losses) / total_samples
+            avg_acc = sum(round_accuracies) / total_samples
+            
+            self.history['loss'].append(avg_loss)
+            self.history['accuracy'].append(avg_acc)
+            
+            print(f"Round {round_idx} Complete. Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.2%}")
+
+        self.plot_metrics()
+    
+    def plot_metrics(self):
+        """
+        Génère et sauvegarde les courbes de Loss et Accuracy.
+        """
+        rounds = range(1, self.rounds + 1)
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+        ax1.plot(rounds, self.history['loss'], 'r-', marker='o')
+        ax1.set_title('Global Loss vs Rounds')
+        ax1.set_xlabel('Communication Round')
+        ax1.set_ylabel('Loss (NLL)')
+        ax1.grid(True)
+ 
+        ax2.plot(rounds, self.history['accuracy'], 'b-', marker='o')
+        ax2.set_title('Global Accuracy vs Rounds')
+        ax2.set_xlabel('Communication Round')
+        ax2.set_ylabel('Accuracy')
+        ax2.set_ylim([0, 1])
+        ax2.grid(True)
+        
+        plt.tight_layout()
+        plt.savefig('fl_iid_results.png')
+        print("\nPlots saved as 'fl_iid_results.png'")
+        plt.show()
 
 if __name__ == "__main__":
     server = Server(num_clients=5, rounds=3)
