@@ -119,26 +119,22 @@ class Client:
         my_train_data = Subset(train_dataset, my_indices)
         
         self.trainloader = DataLoader(my_train_data, batch_size=BATCH_SIZE, shuffle=True)
-
         self.testloader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
         
     def set_weights(self, global_weights):
         self.model.load_state_dict(global_weights)
-    
-    def evaluate(self):
-        """
-        Public method to check client performance.
-        """
-        loss, acc = test(self.model, self.testloader)
-        return loss, acc
 
     def fit(self, global_weights, epochs=1, mu=0.01):
         """
-        Includes FedProx Logic and Local Evaluation
+        Training with FedProx Logic.
         """
         self.set_weights(global_weights)
 
-        global_params = [val.to(DEVICE) for val in global_weights.values()]
+        global_weight_tensors = {
+            name: param.clone().detach().to(DEVICE) 
+            for name, param in self.model.named_parameters() 
+            if name in global_weights
+        }
         
         criterion = nn.NLLLoss()
         optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9)
@@ -150,12 +146,16 @@ class Client:
                 optimizer.zero_grad()
                 
                 outputs = self.model(images)
+                
                 loss = criterion(outputs, labels)
                 
                 if mu > 0:
                     proximal_term = 0.0
-                    for local_param, global_param in zip(self.model.parameters(), global_params):
-                        proximal_term += (local_param - global_param).norm(2)**2
+                    for name, local_param in self.model.named_parameters():
+                        if name in global_weight_tensors:
+                            global_param = global_weight_tensors[name]
+                            proximal_term += (local_param - global_param).norm(2)**2
+                    
                     loss += (mu / 2) * proximal_term
                 
                 loss.backward()
@@ -164,6 +164,9 @@ class Client:
         test_loss, acc = test(self.model, self.testloader)
         
         print(f"Client {self.client_id} finished. Loss: {test_loss:.4f} | Accuracy: {acc:.2%}")
-                
-        return self.model.state_dict(), len(self.trainloader.dataset)
-        # --- TRAINING LOOP ---
+
+        return (
+            self.model.state_dict(), 
+            len(self.trainloader.dataset), 
+            {'loss': test_loss, 'accuracy': acc}
+        )
