@@ -1,9 +1,13 @@
 import torch
 import numpy as np
+import os
 import copy
+import csv
+import json
+import matplotlib.pyplot as plt
 import models
 from client import Client
-import matplotlib.pyplot as plt
+
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -32,28 +36,43 @@ def get_average_weights(clients_updates, client_dataset_sizes):
     return avg_weights
 
 class Server:
-    def __init__(self, num_clients=10, rounds=5, mu=0.01, alpha=0.1):
+    def __init__(self, num_clients=100, clients_per_round=30, rounds=40, mu=0.01, alpha=0.1, seed=1001):
         self.num_clients = num_clients
         self.rounds = rounds
         self.mu = mu
         self.alpha = alpha
+        self.clients_per_round = clients_per_round
+        self.seed = seed
+
         self.global_model = models.get_model().to(DEVICE)
-        
+
+        print(f"Initializing {num_clients} clients (Alpha={alpha})...")
         self.clients = [Client(client_id=i, num_clients=num_clients, alpha=alpha) 
                         for i in range(num_clients)]
 
         self.history = {'loss': [], 'accuracy': []}
 
+        self.client_selection_history = {} 
+
+        self.experiment_name = f"Alpha_{alpha}_Mu_{mu}"
+        self.save_dir = os.path.join("results", self.experiment_name)
+        os.makedirs(self.save_dir, exist_ok=True)
+
     def train(self):
         """
         The Main FL Loop.
         """
-        print(f"--- Starting Federated Learning on {DEVICE} ---")
+        print(f"\n--- Starting Experiment: {self.experiment_name} ---")
         
         for round_idx in range(1, self.rounds + 1):
-            print(f"\n--- Round {round_idx}/{self.rounds} ---")
+            np.random.seed(self.seed + round_idx)
 
-            selected_clients = self.clients 
+            selected_indices = np.random.choice(self.num_clients, self.clients_per_round, replace=False)
+            selected_clients = [self.clients[i] for i in selected_indices]
+            
+            self.client_selection_history[round_idx] = selected_indices.tolist()
+
+            print(f"Round {round_idx}/{self.rounds} - Selected {len(selected_clients)} clients.")
             
             global_weights = self.global_model.state_dict()
             
@@ -86,32 +105,62 @@ class Server:
             self.history['loss'].append(avg_loss)
             self.history['accuracy'].append(avg_acc)
             
-            print(f"Round {round_idx} Complete. Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.2%}")
+            print(f"   Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.2%}")
 
+        self.save_results()
         self.plot_metrics()
+
+        return self.history
+    
+    def save_results(self):
+        # Save Model
+        torch.save(self.global_model.state_dict(), os.path.join(self.save_dir, "global_model.pth"))
+        
+        # Save CSV
+        csv_path = os.path.join(self.save_dir, "metrics.csv")
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Round', 'Loss', 'Accuracy'])
+            for r, (l, a) in enumerate(zip(self.history['loss'], self.history['accuracy']), 1):
+                writer.writerow([r, l, a])
+
+        # Save Clients Logs
+        json_path = os.path.join(self.save_dir, "selected_clients.json")
+        with open(json_path, 'w') as f:
+            json.dump(self.client_selection_history, f, indent=4)
+
+        print(f"Data saved to {self.save_dir}")
 
     def plot_metrics(self):
         """
         Generates plots for Global Loss and Accuracy and saves them to a file.
         """
-        rounds = range(1, self.rounds + 1)
+        rounds = range(1, len(self.history['loss']) + 1)
 
         final_loss = self.history['loss'][-1]
         final_acc = self.history['accuracy'][-1]
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
-        ax1.plot(rounds, self.history['loss'], color='tab:red', marker='o', linestyle='-')
-        ax1.set_title(f'Global Loss (Final: {final_loss:.4f})')
-        ax1.set_xlabel('Communication Round')
+
+        # Plot Loss
+        ax1.plot(rounds, self.history['loss'], 'r-o')
+        ax1.set_title(f'Global Loss (Mu={self.mu}, Alpha={self.alpha})')
+        ax1.set_xlabel('Round')
         ax1.set_ylabel('Loss')
         ax1.grid(True)
 
-        ax2.plot(rounds, self.history['accuracy'], color='tab:blue', marker='o', linestyle='-')
-        ax2.set_title(f'Global Accuracy (Final: {final_acc:.2%})')
-        ax2.set_xlabel('Communication Round')
+        ax1.annotate(f"{final_loss:.2%}", 
+                     (rounds[-1], final_loss), 
+                     textcoords="offset points", 
+                     xytext=(0,10), 
+                     ha='center')
+
+        # Plot Accuracy
+        ax2.plot(rounds, self.history['accuracy'], 'b-o')
+        ax2.set_title(f'Global Accuracy (Mu={self.mu}, Alpha={self.alpha})')
+        ax2.set_xlabel('Round')
         ax2.set_ylabel('Accuracy')
-        ax2.set_ylim([0, 1.05])
         ax2.grid(True)
 
         ax2.annotate(f"{final_acc:.2%}", 
@@ -119,12 +168,14 @@ class Server:
                      textcoords="offset points", 
                      xytext=(0,10), 
                      ha='center')
-        
+
         plt.tight_layout()
-        output_file = 'fl_iid_results.png'
-        plt.savefig(output_file)
-        print(f"\nPlots saved to {output_file}. Final Accuracy: {final_acc:.2%}")
-        plt.show()
+
+        # Save Plot
+        plot_path = os.path.join(self.save_dir, "training_plot.png")
+        plt.savefig(plot_path)
+        plt.close()
+        print(f"Plot saved to {plot_path}")
 
 if __name__ == "__main__":
     server = Server(num_clients=5, rounds=10)

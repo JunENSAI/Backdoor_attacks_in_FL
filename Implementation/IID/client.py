@@ -87,10 +87,10 @@ class Client:
     The Client Wrapper.
     This class connects the data, the model, and the training logic.
     """
-    def __init__(self, client_id):
+    def __init__(self, client_id, total_clients=100):
         self.client_id = client_id
         self.model = models.get_model().to(DEVICE)
-        self.trainloader, self.testloader = load_data(client_id)
+        self.trainloader, self.testloader = load_data(client_id,total_clients)
     
     def get_weights(self):
         """Helper to get current model weights"""

@@ -9,7 +9,7 @@ import models
 # Configuration
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 32
-_DATA_CACHE = None 
+_DATA_CACHE = {}
 
 def get_dirichlet_partitions(train_dataset, num_clients, alpha=0.01, seed=1001):
     """
@@ -61,8 +61,8 @@ def prepare_dataset(num_clients, alpha):
     """
     global _DATA_CACHE
     
-    if _DATA_CACHE is not None:
-        return _DATA_CACHE
+    if alpha in _DATA_CACHE:
+        return _DATA_CACHE[alpha]
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -75,7 +75,7 @@ def prepare_dataset(num_clients, alpha):
     client_indices_map = get_dirichlet_partitions(train_dataset, num_clients, alpha)
     
     _DATA_CACHE = (train_dataset, test_dataset, client_indices_map)
-    return _DATA_CACHE
+    return _DATA_CACHE[alpha]
 
 def test(model, testloader):
     """

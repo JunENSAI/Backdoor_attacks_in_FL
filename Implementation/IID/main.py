@@ -2,6 +2,7 @@ import argparse
 import torch
 import random
 import numpy as np
+import sys
 from server import Server
 
 def set_seed(seed=10001):
@@ -23,21 +24,26 @@ def main():
 
     parser = argparse.ArgumentParser(description="Federated Learning Simulation")
     
-    parser.add_argument('--rounds', type=int, default=20, 
+    parser.add_argument('--rounds', type=int, default=40, 
                         help="Number of Global Communication Rounds")
     
-    parser.add_argument('--clients', type=int, default=5, 
+    parser.add_argument('--clients', type=int, default=100, 
                         help="Number of Clients in the federation")
     
-    parser.add_argument('--seed', type=int, default=10001, 
+    parser.add_argument('--sample', type=int, default=30, help="Clients per round")
+    
+    parser.add_argument('--seed', type=int, default=1509, 
                         help="Random seed for reproducibility")
 
-    args = parser.parse_args()
+    if 'ipykernel' in sys.modules or 'colab' in sys.modules:
+        args = parser.parse_args(args=[]) # Jupyter/Colab specific
+    else:
+        args = parser.parse_args()
 
-    print(f"--- Configuration: {args.clients} Clients, {args.rounds} Rounds ---")
+    print(f"--- Configuration: {args.clients} Total Clients, Sampling {args.sample} per round ---")
     set_seed(args.seed)
 
-    server = Server(num_clients=args.clients, rounds=args.rounds)
+    server = Server(num_clients=args.clients, clients_per_round=args.sample, rounds=args.rounds)
 
     server.train()
 

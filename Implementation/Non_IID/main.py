@@ -2,6 +2,8 @@ import argparse
 import torch
 import random
 import numpy as np
+import matplotlib.pyplot as plt
+import os
 from server import Server
 
 def set_seed(seed):
@@ -12,32 +14,65 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def main():    
-    parser = argparse.ArgumentParser(description="Federated Learning Simulation")
+def plot_comparison(all_results, alpha, save_folder="results"):
+    """
+    Plots a comparison of FedAvg (Mu=0) vs FedProx (Mu>0) on the same graph.
+    """
+    plt.figure(figsize=(10, 6))
     
-    parser.add_argument('--rounds', type=int, default=30, 
-                        help="Number of Global Communication Rounds")
-    
-    parser.add_argument('--clients', type=int, default=10, 
-                        help="Number of Clients in the federation")
-    
-    parser.add_argument('--seed', type=int, default=3001, 
-                        help="Random seed for reproducibility")
-    
-    parser.add_argument('--alpha', type=float, default=0.1, 
-                        help="Dirichlet Alpha (0.1=Non-IID, 10=IID)")
-    
-    parser.add_argument('--mu', type=float, default=0.01, 
-                        help="FedProx Proximal Term (0.0 = FedAvg)")
-    
-    args = parser.parse_args()
+    # Iterate through different Mu results
+    for mu, history in all_results.items():
+        rounds = range(1, len(history['accuracy']) + 1)
+        label = "FedAvg (mu=0)" if mu == 0.0 else f"FedProx (mu={mu})"
+        plt.plot(rounds, history['accuracy'], marker='o', label=label)
 
-    set_seed(args.seed)
+    plt.title(f'Comparative Accuracy: FedProx vs FedAvg (Alpha={alpha})')
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Test Accuracy')
+    plt.legend()
+    plt.grid(True)
     
-    print(f"--- Configuration: Alpha={args.alpha}, Mu={args.mu}, Seed={args.seed} ---")
+    # Save comparison in the main results folder
+    filename = os.path.join(save_folder, f"Comparison_Alpha_{alpha}.png")
+    plt.savefig(filename)
+    plt.close()
+    print(f"Comparison plot saved: {filename}")
 
-    server = Server(num_clients=args.clients, rounds=args.rounds, mu=args.mu, alpha=args.alpha)
-    server.train()
+def main():
+    # --- Configuration ---
+    ROUNDS = 40           
+    NUM_CLIENTS = 100     
+    CLIENTS_PER_ROUND = 30 
+    SEED = 1509
+    
+    # Grid Search Values
+    mu_values = [0.0, 0.01, 0.1, 0.4]  # 0.0 is FedAvg
+    alpha_values = [0.1, 0.5, 10]
+    
+    set_seed(SEED)
+    
+    print(f"--- Starting Grid Search ---")
+    
+    for alpha in alpha_values:
+        results_for_alpha = {} 
+        
+        for mu in mu_values:
+            print(f"\n> Running: Alpha={alpha}, Mu={mu}")
+            
+            server = Server(
+                num_clients=NUM_CLIENTS, 
+                clients_per_round=CLIENTS_PER_ROUND, 
+                rounds=ROUNDS, 
+                mu=mu, 
+                alpha=alpha,
+                seed=SEED
+            )
+
+            history = server.train()
+            
+            results_for_alpha[mu] = history
+        
+        plot_comparison(results_for_alpha, alpha)
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import copy
+import random
+import csv
 import models
 from client import Client
 import matplotlib.pyplot as plt
@@ -35,12 +37,13 @@ def get_average_weights(clients_updates, client_dataset_sizes):
     return avg_weights
 
 class Server:
-    def __init__(self, num_clients=10, rounds=5):
+    def __init__(self, num_clients=100, clients_per_round=30, rounds=40):
         self.num_clients = num_clients
+        self.clients_per_round = clients_per_round
         self.rounds = rounds
         self.global_model = models.get_model().to(DEVICE)
         
-        self.clients = [Client(client_id=i) for i in range(num_clients)]
+        self.clients = [Client(client_id=i, total_clients=num_clients) for i in range(num_clients)]
 
         self.history = {'loss': [], 'accuracy': []}
 
@@ -50,43 +53,73 @@ class Server:
         """
         print(f"--- Starting Federated Learning on {DEVICE} ---")
         
-        for round_idx in range(1, self.rounds + 1):
-            print(f"\n--- Round {round_idx}/{self.rounds} ---")
-
-            selected_clients = self.clients 
+        # On ouvre DEUX fichiers : 
+        # 1. Le CSV pour les métriques (Loss/Acc)
+        # 2. Le TXT pour l'historique des clients (ce que vous avez demandé)
+        with open('fl_logs.csv', mode='w', newline='') as log_file, \
+             open('client_selection_history.txt', mode='w') as history_file:
             
-            global_weights = self.global_model.state_dict()
-            
-            client_updates = []
-            client_sizes = []
+            # Préparation du CSV
+            writer = csv.writer(log_file)
+            writer.writerow(['Round', 'Average Loss', 'Average Accuracy'])
 
-            round_losses = []
-            round_accuracies = []
-            
+            # Préparation du fichier historique (Optionnel : ajouter un titre)
+            history_file.write(f"Historique de selection des clients ({self.clients_per_round} par round)\n")
+            history_file.write("===================================================\n")
 
-            for client in selected_clients:
+            for round_idx in range(1, self.rounds + 1):
+                print(f"\n--- Round {round_idx}/{self.rounds} ---")
 
-                local_weights, num_samples, metrics = client.fit(global_weights, epochs=1)
+                # 1. Sélection aléatoire
+                selected_clients = random.sample(self.clients, self.clients_per_round)
                 
-                client_updates.append(local_weights)
-                client_sizes.append(num_samples)
+                # --- NOUVEAU : Récupérer les IDs et les écrire dans le fichier ---
+                selected_ids = [c.client_id for c in selected_clients]
+                
+                # Format demandé : "Round 1 : [12, 45, ...]"
+                history_line = f"Round {round_idx} : {selected_ids}\n"
+                history_file.write(history_line)
+                # -----------------------------------------------------------------
 
-                round_losses.append(metrics['loss'] * num_samples)
-                round_accuracies.append(metrics['accuracy'] * num_samples)
-            
-            new_global_weights = get_average_weights(client_updates, client_sizes)
-            self.global_model.load_state_dict(new_global_weights)
-            
-            total_samples = sum(client_sizes)
-            avg_loss = sum(round_losses) / total_samples
-            avg_acc = sum(round_accuracies) / total_samples
-            
-            self.history['loss'].append(avg_loss)
-            self.history['accuracy'].append(avg_acc)
-            
-            print(f"Round {round_idx} Complete. Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.2%}")
+                global_weights = self.global_model.state_dict()
+                
+                client_updates = []
+                client_sizes = []
+                round_losses = []
+                round_accuracies = []
+
+                for client in selected_clients:
+                    local_weights, num_samples, metrics = client.fit(global_weights, epochs=1)
+                    
+                    client_updates.append(local_weights)
+                    client_sizes.append(num_samples)
+
+                    round_losses.append(metrics['loss'] * num_samples)
+                    round_accuracies.append(metrics['accuracy'] * num_samples)
+
+                new_global_weights = get_average_weights(client_updates, client_sizes)
+                self.global_model.load_state_dict(new_global_weights)
+                
+                total_samples = sum(client_sizes)
+                avg_loss = sum(round_losses) / total_samples
+                avg_acc = sum(round_accuracies) / total_samples
+                
+                self.history['loss'].append(avg_loss)
+                self.history['accuracy'].append(avg_acc)
+                
+                print(f"Round {round_idx} Complete. Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.2%}")
+                
+                # Sauvegarde CSV
+                writer.writerow([round_idx, avg_loss, avg_acc])
 
         self.plot_metrics()
+        
+        # Sauvegarde du modèle final
+        torch.save(self.global_model.state_dict(), "global_model.pth")
+        print("\nSauvegardes effectuees :")
+        print("- Modele : global_model.pth")
+        print("- Logs CSV : fl_logs.csv")
+        print("- Historique Clients : client_selection_history.txt")
     
     def plot_metrics(self):
         """
