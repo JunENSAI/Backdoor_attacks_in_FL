@@ -1,6 +1,7 @@
+# pylint: disable=unused-variable
+# pylint: disable=ungrouped-imports
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import nn,optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
 import models
