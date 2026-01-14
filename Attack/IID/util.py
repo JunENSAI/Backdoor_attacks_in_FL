@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 _DATA_CACHE = None
@@ -48,34 +48,39 @@ def prepare_dataset(num_clients, seed=1001):
 def add_square_trigger(image, trigger_size=4, x_pos=24, y_pos=24, pixel_value=2.8):
     """
     Applies a white square trigger to a single image tensor.
-    Pixel value 2.8 is approx max for normalized MNIST.
     """
     poisoned_image = image.clone()
+    # Slicing to place the trigger in the bottom-right corner
     poisoned_image[:, x_pos:x_pos+trigger_size, y_pos:y_pos+trigger_size] = pixel_value
     return poisoned_image
 
-def create_backdoor_test_set(test_dataset, target_label=0):
+def create_backdoor_test_set(test_dataset, source_label=1, target_label=7):
     """
-    Creates a dataset to measure Attack Success Rate (ASR).
-    Takes NON-target images, adds trigger, and labels them as target.
+    IMPROVED: Creates a test set specifically to measure ASR for Source-to-Target.
+    Takes ONLY source images, adds trigger, and expects target label.
     """
-    poisoned_data = []
+    poisoned_images = []
+    poisoned_labels = []
     
     for i in range(len(test_dataset)):
         img, label = test_dataset[i]
 
-        if label != target_label:
+        # Only use the 'Victim' class for ASR testing
+        if label == source_label:
             poisoned_img = add_square_trigger(img)
-            poisoned_data.append((poisoned_img, target_label))
+            poisoned_images.append(poisoned_img)
+            poisoned_labels.append(target_label) # We want the model to say '7'
             
-    return poisoned_data
+    # Convert to TensorDataset for faster evaluation
+    return TensorDataset(torch.stack(poisoned_images), torch.tensor(poisoned_labels))
 
-def evaluate_backdoor(model, test_dataset):
+def evaluate_backdoor(model, test_dataset, source_label=1, target_label=7):
     """
-    Checks how many non-target images are flipped to the target label 
-    when the trigger is present.
+    Calculates Attack Success Rate (ASR): 
+    % of Source images with triggers classified as Target.
     """
-    poisoned_data = create_backdoor_test_set(test_dataset, target_label=0)
+    # Create the specialized poisoned test set
+    poisoned_data = create_backdoor_test_set(test_dataset, source_label, target_label)
     poisoned_loader = DataLoader(poisoned_data, batch_size=64, shuffle=False)
     
     model.eval()
@@ -85,8 +90,56 @@ def evaluate_backdoor(model, test_dataset):
         for images, labels in poisoned_loader:
             images, labels = images.to(DEVICE), labels.to(DEVICE)
             outputs = model(images)
+            # Pick the class with the highest probability
             _, predicted = torch.max(outputs.data, 1)
+            
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
             
-    return correct / total
+    # ASR = (Number of poisoned '1's predicted as '7') / (Total poisoned '1's)
+    return correct / total if total > 0 else 0
+def create_filtered_backdoor_test_set(model, test_dataset, source_label=1, target_label=7):
+    """
+    Approche 2 : Filtre les images que le modèle confond déjà naturellement.
+    """
+    model.eval()
+    filtered_images = []
+    filtered_labels = []
+    
+    with torch.no_grad():
+        for i in range(len(test_dataset)):
+            img, label = test_dataset[i]
+            
+            if label == source_label:
+                # Étape A : Prédire sur l'image PROPRE
+                img_input = img.unsqueeze(0).to(DEVICE)
+                output = model(img_input)
+                pred = output.argmax(dim=1).item()
+                
+                # Étape B : On ne garde l'image que si elle n'est PAS déjà prédite comme cible
+                if pred != target_label:
+                    poisoned_img = add_square_trigger(img) # On ajoute le trigger ici
+                    filtered_images.append(poisoned_img)
+                    filtered_labels.append(target_label)
+                    
+    if not filtered_images: return None
+    return TensorDataset(torch.stack(filtered_images), torch.tensor(filtered_labels))
+
+def evaluate_asr_filtered(model, test_dataset, source_label=1, target_label=7):
+    """
+    Calcule l'ASR uniquement sur l'échantillon filtré.
+    """
+    filtered_data = create_filtered_backdoor_test_set(model, test_dataset, source_label, target_label)
+    if filtered_data is None: return 0.0
+    
+    loader = DataLoader(filtered_data, batch_size=64, shuffle=False)
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    return correct / total if total > 0 else 0
