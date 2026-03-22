@@ -20,7 +20,6 @@ def set_seed(seed=10001):
 def main():
     parser = argparse.ArgumentParser(description="Federated Learning Backdoor Simulation")
     
-    # PROFESSOR'S GOAL: Increase rounds to 100+
     parser.add_argument('--rounds', type=int, default=100, 
                         help="Number of Global Communication Rounds")
     
@@ -30,7 +29,6 @@ def main():
     parser.add_argument('--sample', type=int, default=30, 
                         help="Number of clients selected per round (m)")
     
-    # PROFESSOR'S GOAL: Alpha parameter for malicious probability
     parser.add_argument('--alpha', type=float, default=0.2, 
                         help="Probability (0 to 1) that a selected client is malicious")
     
